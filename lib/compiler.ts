@@ -30,7 +30,7 @@ export async function compileAndRun(
     const { init, Wasmer, Directory } = await import("@wasmer/sdk");
 
     onOutput({ kind: "info", text: "Initializing WebAssembly runtime…\n" });
-    await init();
+    await init({ registryUrl: "/api/wasmer-registry" });
 
     onOutput({ kind: "info", text: "Loading Clang from Wasmer registry…\n" });
     const clang = await Wasmer.fromRegistry("clang/clang");
