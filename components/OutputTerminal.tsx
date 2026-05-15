@@ -1,144 +1,169 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { useEffect, useImperativeHandle, useRef, forwardRef } from "react";
+import type { Terminal as XTerm } from "@xterm/xterm";
+import type { FitAddon as FitAddonType } from "xterm-addon-fit";
+
+export interface TerminalHandle {
+  writeInfo: (text: string) => void;
+  writeStdout: (text: string) => void;
+  writeStderr: (text: string) => void;
+  writeError: (text: string) => void;
+  clear: () => void;
+  getStdinBuffer: () => string;
+  resetStdinBuffer: () => void;
+}
 
 interface OutputTerminalProps {
-  output: string;
-  errors: string;
   isRunning: boolean;
 }
 
-// Dynamically import xterm to avoid SSR issues
-let Terminal: any;
-let FitAddon: any;
-let WebLinksAddon: any;
+export const OutputTerminal = forwardRef<TerminalHandle, OutputTerminalProps>(
+  function OutputTerminal({ isRunning }, ref) {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const termRef = useRef<XTerm | null>(null);
+    const fitRef = useRef<FitAddonType | null>(null);
+    const stdinBuf = useRef<string>("");
+    const currentLine = useRef<string>("");
 
-if (typeof window !== "undefined") {
-  import("@xterm/xterm").then((mod) => {
-    Terminal = mod.Terminal;
-  });
-  import("xterm-addon-fit").then((mod) => {
-    FitAddon = mod.FitAddon;
-  });
-  import("@xterm/addon-web-links").then((mod) => {
-    WebLinksAddon = mod.WebLinksAddon;
-  });
-  import("@xterm/xterm/css/xterm.css");
-}
+    useImperativeHandle(ref, () => ({
+      writeInfo: (text) => write(`\x1b[36m${text}\x1b[0m`),
+      writeStdout: (text) => write(`\x1b[97m${text}\x1b[0m`),
+      writeStderr: (text) => write(`\x1b[91m${text}\x1b[0m`),
+      writeError: (text) => write(`\x1b[91m${text}\x1b[0m`),
+      clear: () => termRef.current?.clear(),
+      getStdinBuffer: () => stdinBuf.current,
+      resetStdinBuffer: () => { stdinBuf.current = ""; },
+    }));
 
-export function OutputTerminal({ output, errors, isRunning }: OutputTerminalProps) {
-  const terminalRef = useRef<HTMLDivElement>(null);
-  const terminal = useRef<any>(null);
-  const fitAddon = useRef<any>(null);
-  const [isLoaded, setIsLoaded] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !terminalRef.current || terminal.current) return;
-
-    // Wait for modules to load
-    const initTerminal = async () => {
-      if (!Terminal || !FitAddon || !WebLinksAddon) {
-        setTimeout(initTerminal, 100);
-        return;
-      }
-
-      terminal.current = new Terminal({
-        theme: {
-          background: "#0c0c0c",
-          foreground: "#cccccc",
-          cursor: "#ffffff",
-          selectionBackground: "#264f78",
-          black: "#0c0c0c",
-          red: "#cd3131",
-          green: "#0dbc79",
-          yellow: "#e5e510",
-          blue: "#2472c8",
-          magenta: "#bc3fbc",
-          cyan: "#11a8cd",
-          white: "#e5e5e5",
-        },
-        fontSize: 14,
-        fontFamily: "var(--font-geist-mono), monospace",
-        cursorBlink: true,
-        cursorStyle: "block",
-        scrollback: 10000,
-      });
-
-      fitAddon.current = new FitAddon();
-      terminal.current.loadAddon(fitAddon.current);
-      terminal.current.loadAddon(new WebLinksAddon());
-
-      terminal.current.open(terminalRef.current);
-      fitAddon.current.fit();
-
-      terminal.current.writeln("\x1b[1;32mC IDE Terminal\x1b[0m");
-      terminal.current.writeln("Ready to compile and run C code.\r\n");
-      setIsLoaded(true);
-    };
-
-    initTerminal();
-
-    const handleResize = () => {
-      fitAddon.current?.fit();
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  useEffect(() => {
-    if (terminal.current && output && isLoaded) {
-      const lines = output.split("\n");
-      lines.forEach((line) => {
-        terminal.current?.writeln(line);
-      });
+    function write(text: string) {
+      if (!termRef.current) return;
+      termRef.current.write(text.replace(/\n/g, "\r\n"));
     }
-  }, [output, isLoaded]);
 
-  const hasErrors = errors && errors.length > 0;
+    useEffect(() => {
+      if (!containerRef.current || termRef.current) return;
 
-  return (
-    <Tabs defaultValue="output" className="h-full flex flex-col">
-      <div className="flex items-center justify-between px-4 py-2 bg-zinc-900 border-b border-zinc-800">
-        <TabsList className="bg-zinc-800">
-          <TabsTrigger value="output" className="text-xs data-[state=active]:bg-zinc-700">
-            Output {hasErrors && <span className="ml-1 text-red-400">●</span>}
-          </TabsTrigger>
-          <TabsTrigger value="terminal" className="text-xs data-[state=active]:bg-zinc-700">
-            Terminal
-          </TabsTrigger>
-        </TabsList>
-        {isRunning && (
-          <span className="text-xs text-yellow-400 animate-pulse">
-            Running...
-          </span>
-        )}
-      </div>
+      let disposed = false;
 
-      <TabsContent value="output" className="flex-1 m-0 data-[state=active]:flex flex-col">
-        <ScrollArea className="flex-1 bg-zinc-950 p-4">
-          <div className="font-mono text-sm">
-            {output ? (
-              <pre className="text-green-400 whitespace-pre-wrap">{output}</pre>
-            ) : (
-              <span className="text-zinc-500">No output yet. Run your code to see results.</span>
-            )}
-            {errors && (
-              <pre className="text-red-400 whitespace-pre-wrap mt-2">{errors}</pre>
-            )}
-          </div>
-        </ScrollArea>
-      </TabsContent>
+      (async () => {
+        const [{ Terminal }, { FitAddon }, { WebLinksAddon }] = await Promise.all([
+          import("@xterm/xterm"),
+          import("xterm-addon-fit"),
+          import("@xterm/addon-web-links"),
+        ]);
 
-      <TabsContent value="terminal" className="flex-1 m-0 data-[state=active]:flex flex-col">
-        <div 
-          ref={terminalRef} 
-          className="flex-1 p-2 terminal-container"
-          style={{ background: "#0c0c0c" }}
+        await import("@xterm/xterm/css/xterm.css");
+
+        if (disposed || !containerRef.current) return;
+
+        const term = new Terminal({
+          cursorBlink: true,
+          cursorStyle: "block",
+          fontSize: 13,
+          fontFamily: '"Geist Mono", "Fira Code", Menlo, monospace',
+          scrollback: 20000,
+          convertEol: true,
+          theme: {
+            background: "#0d0d0d",
+            foreground: "#d4d4d4",
+            cursor: "#d4d4d4",
+            selectionBackground: "#264f78",
+            black: "#0d0d0d",
+            red: "#f44747",
+            green: "#4ec9b0",
+            yellow: "#dcdcaa",
+            blue: "#569cd6",
+            magenta: "#c678dd",
+            cyan: "#56b6c2",
+            white: "#d4d4d4",
+            brightBlack: "#808080",
+            brightRed: "#f44747",
+            brightGreen: "#4ec9b0",
+            brightYellow: "#dcdcaa",
+            brightBlue: "#569cd6",
+            brightMagenta: "#c678dd",
+            brightCyan: "#56b6c2",
+            brightWhite: "#ffffff",
+          },
+        });
+
+        const fit = new FitAddon();
+        term.loadAddon(fit);
+        term.loadAddon(new WebLinksAddon());
+
+        term.open(containerRef.current);
+        fit.fit();
+        term.focus();
+
+        termRef.current = term;
+        fitRef.current = fit;
+
+        term.writeln("\x1b[1;36m╔══════════════════════════════════╗\x1b[0m");
+        term.writeln("\x1b[1;36m║    C IDE  •  WebAssembly + Clang  ║\x1b[0m");
+        term.writeln("\x1b[1;36m╚══════════════════════════════════╝\x1b[0m");
+        term.writeln("\x1b[90mPress \x1b[97mRun\x1b[90m to compile and execute your C code.\x1b[0m");
+        term.writeln("");
+
+        term.onData((data) => {
+          if (isRunning) return;
+          const code = data.charCodeAt(0);
+          if (data === "\r") {
+            stdinBuf.current += currentLine.current + "\n";
+            term.write("\r\n");
+            currentLine.current = "";
+          } else if (code === 127) {
+            if (currentLine.current.length > 0) {
+              currentLine.current = currentLine.current.slice(0, -1);
+              term.write("\b \b");
+            }
+          } else if (code >= 32) {
+            currentLine.current += data;
+            term.write(data);
+          }
+        });
+
+        const obs = new ResizeObserver(() => fit.fit());
+        obs.observe(containerRef.current);
+
+        const onResize = () => fit.fit();
+        window.addEventListener("resize", onResize);
+
+        return () => {
+          obs.disconnect();
+          window.removeEventListener("resize", onResize);
+          term.dispose();
+          termRef.current = null;
+          fitRef.current = null;
+        };
+      })();
+
+      return () => { disposed = true; };
+    }, []);
+
+    useEffect(() => {
+      if (!isRunning) {
+        termRef.current?.focus();
+      }
+    }, [isRunning]);
+
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex items-center justify-between px-4 py-1.5 bg-zinc-900 border-b border-zinc-800">
+          <span className="text-xs font-medium text-zinc-400">Terminal</span>
+          {isRunning && (
+            <span className="text-xs text-yellow-400 animate-pulse flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse inline-block" />
+              Running…
+            </span>
+          )}
+        </div>
+        <div
+          ref={containerRef}
+          className="flex-1 min-h-0"
+          style={{ background: "#0d0d0d", padding: "6px 4px" }}
         />
-      </TabsContent>
-    </Tabs>
-  );
-}
+      </div>
+    );
+  }
+);

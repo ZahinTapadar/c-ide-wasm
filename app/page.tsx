@@ -1,23 +1,22 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { FileExplorer } from "@/components/FileExplorer";
 import { CodeEditor } from "@/components/CodeEditor";
-import { OutputTerminal } from "@/components/OutputTerminal";
+import { OutputTerminal, type TerminalHandle } from "@/components/OutputTerminal";
 import { FileItem, initialFiles } from "@/lib/filesystem";
-import { cCompiler, executeCCode } from "@/lib/compiler";
+import { compileAndRun } from "@/lib/compiler";
 import { Button } from "@/components/ui/button";
-import { Play, Square, Save, FileCode } from "lucide-react";
+import { Play, Square, Trash2, Terminal, FileCode2 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 
 export default function CIDE() {
   const [files, setFiles] = useState<FileItem[]>(initialFiles);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(initialFiles[0].id);
-  const [output, setOutput] = useState("");
-  const [errors, setErrors] = useState("");
   const [isRunning, setIsRunning] = useState(false);
+  const terminalRef = useRef<TerminalHandle>(null);
 
-  const selectedFile = files.find((f) => f.id === selectedFileId) || null;
+  const selectedFile = files.find((f) => f.id === selectedFileId) ?? null;
 
   const handleSelectFile = useCallback((file: FileItem) => {
     setSelectedFileId(file.id);
@@ -30,118 +29,94 @@ export default function CIDE() {
 
   const handleDeleteFile = useCallback((fileId: string) => {
     setFiles((prev) => prev.filter((f) => f.id !== fileId));
-    if (selectedFileId === fileId) {
-      setSelectedFileId(null);
-    }
-  }, [selectedFileId]);
+    setSelectedFileId((prev) => (prev === fileId ? null : prev));
+  }, []);
 
   const handleFileChange = useCallback((content: string) => {
-    if (!selectedFileId) return;
-    
     setFiles((prev) =>
-      prev.map((f) =>
-        f.id === selectedFileId ? { ...f, content } : f
-      )
+      prev.map((f) => (f.id === selectedFileId ? { ...f, content } : f))
     );
   }, [selectedFileId]);
 
-  const handleCompile = async () => {
-    if (!selectedFile) return;
+  const handleRun = async () => {
+    if (!selectedFile || isRunning) return;
 
-    setOutput("");
-    setErrors("");
+    const term = terminalRef.current;
+    if (!term) return;
+
+    term.clear();
     setIsRunning(true);
 
+    const stdin = term.getStdinBuffer() || undefined;
+    term.resetStdinBuffer();
+
     try {
-      // Compile the code
-      const compileResult = await cCompiler.compile(selectedFile.content, selectedFile.name);
-      
-      if (!compileResult.success) {
-        setErrors(compileResult.error || "Compilation failed");
-        setOutput("Compilation failed.");
-        setIsRunning(false);
-        return;
-      }
-
-      setOutput("Compilation successful.\n\nRunning program...\n");
-
-      // Execute the code
-      const runResult = await executeCCode(selectedFile.content);
-      
-      setOutput((prev) => prev + "\n" + runResult.stdout);
-      if (runResult.stderr) {
-        setErrors(runResult.stderr);
-      }
-    } catch (error) {
-      setErrors(error instanceof Error ? error.message : "An error occurred");
+      await compileAndRun(
+        selectedFile.content,
+        (chunk) => {
+          switch (chunk.kind) {
+            case "info":   term.writeInfo(chunk.text); break;
+            case "stdout": term.writeStdout(chunk.text); break;
+            case "stderr": term.writeStderr(chunk.text); break;
+            case "error":  term.writeError(chunk.text); break;
+          }
+        },
+        stdin
+      );
     } finally {
       setIsRunning(false);
     }
   };
 
-  const handleStop = () => {
-    setIsRunning(false);
-    setOutput((prev) => prev + "\n[Program stopped]");
-  };
-
   return (
-    <div className="h-screen flex flex-col bg-zinc-950">
-      {/* Header */}
-      <header className="flex items-center justify-between px-4 py-2 bg-zinc-900 border-b border-zinc-800">
+    <div className="h-screen flex flex-col bg-zinc-950 overflow-hidden">
+      {/* ── Top bar ───────────────────────────────────────────────── */}
+      <header className="flex-shrink-0 flex items-center justify-between px-4 h-11 bg-zinc-900 border-b border-zinc-800">
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <FileCode className="h-5 w-5 text-blue-400" />
-            <span className="font-semibold text-zinc-100">C IDE</span>
-          </div>
-          <Separator orientation="vertical" className="h-6 bg-zinc-800" />
-          <span className="text-xs text-zinc-500">
-            WebAssembly C Compiler
-          </span>
+          <FileCode2 className="h-4 w-4 text-sky-400" />
+          <span className="text-sm font-semibold text-zinc-100 tracking-tight">C IDE</span>
+          <Separator orientation="vertical" className="h-5 bg-zinc-700" />
+          <span className="text-xs text-zinc-500">WebAssembly · Clang</span>
         </div>
 
         <div className="flex items-center gap-2">
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="h-8 text-xs border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
-            onClick={() => {
-              // Save functionality - in real app, this would persist to storage
-              console.log("Saving files...");
-            }}
+            className="h-7 text-xs text-zinc-400 hover:text-zinc-100 gap-1"
+            onClick={() => terminalRef.current?.clear()}
           >
-            <Save className="h-3.5 w-3.5 mr-1" />
-            Save
+            <Trash2 className="h-3 w-3" />
+            Clear
           </Button>
 
           {isRunning ? (
             <Button
-              variant="destructive"
               size="sm"
-              className="h-8 text-xs"
-              onClick={handleStop}
+              className="h-7 text-xs bg-red-700 hover:bg-red-800 text-white gap-1"
+              onClick={() => setIsRunning(false)}
             >
-              <Square className="h-3.5 w-3.5 mr-1" />
+              <Square className="h-3 w-3" />
               Stop
             </Button>
           ) : (
             <Button
-              variant="default"
               size="sm"
-              className="h-8 text-xs bg-green-600 hover:bg-green-700"
-              onClick={handleCompile}
+              className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
+              onClick={handleRun}
               disabled={!selectedFile}
             >
-              <Play className="h-3.5 w-3.5 mr-1" />
+              <Play className="h-3 w-3" />
               Run
             </Button>
           )}
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* File Explorer */}
-        <div className="w-64 flex-shrink-0">
+      {/* ── Main area ─────────────────────────────────────────────── */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        {/* File explorer */}
+        <div className="w-56 flex-shrink-0 border-r border-zinc-800">
           <FileExplorer
             files={files}
             selectedFile={selectedFileId}
@@ -151,40 +126,35 @@ export default function CIDE() {
           />
         </div>
 
-        {/* Editor and Terminal */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Code Editor */}
-          <div className="flex-1 min-h-0">
-            <CodeEditor
-              file={selectedFile}
-              onChange={handleFileChange}
-            />
+        {/* Editor (left 55%) + Terminal (right 45%) */}
+        <div className="flex-1 flex min-w-0 overflow-hidden">
+          {/* Monaco editor */}
+          <div className="flex-1 min-w-0 border-r border-zinc-800">
+            <CodeEditor file={selectedFile} onChange={handleFileChange} />
           </div>
 
-          {/* Output Terminal */}
-          <div className="h-48 border-t border-zinc-800">
-            <OutputTerminal
-              output={output}
-              errors={errors}
-              isRunning={isRunning}
-            />
+          {/* Terminal — always visible, full height */}
+          <div className="w-[45%] flex-shrink-0 flex flex-col">
+            <OutputTerminal ref={terminalRef} isRunning={isRunning} />
           </div>
         </div>
       </div>
 
-      {/* Footer */}
-      <footer className="flex items-center justify-between px-4 py-1.5 bg-zinc-900 border-t border-zinc-800 text-xs text-zinc-500">
+      {/* ── Status bar ────────────────────────────────────────────── */}
+      <footer className="flex-shrink-0 flex items-center justify-between px-4 h-6 bg-zinc-900 border-t border-zinc-800 text-[11px] text-zinc-500">
         <div className="flex items-center gap-4">
-          <span>Ready</span>
-          {selectedFile && (
-            <span>
-              {selectedFile.name} | UTF-8
-            </span>
+          {selectedFile ? (
+            <>
+              <span className="text-zinc-400">{selectedFile.name}</span>
+              <span>UTF-8</span>
+            </>
+          ) : (
+            <span>No file selected</span>
           )}
         </div>
-        <div className="flex items-center gap-4">
-          <span>C Language Mode</span>
-          <span>WebAssembly Runtime</span>
+        <div className="flex items-center gap-3">
+          <Terminal className="h-3 w-3" />
+          <span>Clang · WASI · wasm32</span>
         </div>
       </footer>
     </div>
