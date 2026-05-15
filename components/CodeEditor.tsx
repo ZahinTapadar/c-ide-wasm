@@ -28,7 +28,7 @@ export function CodeEditor({ file, onChange }: CodeEditorProps) {
     // Configure editor options
     editor.updateOptions({
       fontSize: 14,
-      fontFamily: "var(--font-geist-mono), monospace",
+      fontFamily: '"Geist Mono", "Fira Code", ui-monospace, Menlo, monospace',
       minimap: { enabled: true },
       scrollBeyondLastLine: false,
       automaticLayout: true,
@@ -47,7 +47,7 @@ export function CodeEditor({ file, onChange }: CodeEditorProps) {
 
   if (!file) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-zinc-950 text-zinc-500">
+      <div className="h-full flex items-center justify-center bg-zinc-950 text-zinc-500">
         <div className="text-center">
           <p className="text-lg mb-2">No file selected</p>
           <p className="text-sm">Select or create a file from the explorer</p>
@@ -57,14 +57,15 @@ export function CodeEditor({ file, onChange }: CodeEditorProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-zinc-950">
+    <div className="h-full flex flex-col bg-zinc-950">
       <div className="flex items-center px-4 py-2 bg-zinc-900 border-b border-zinc-800">
         <span className="text-sm text-zinc-300">{file.name}</span>
         {file.content !== file.content && (
           <span className="ml-2 text-zinc-500">●</span>
         )}
       </div>
-      <div className="flex-1">
+      <div className="flex-1 relative min-h-0">
+        <div className="absolute inset-0">
         <Editor
           height="100%"
           language="c"
@@ -89,6 +90,7 @@ export function CodeEditor({ file, onChange }: CodeEditorProps) {
             </div>
           }
         />
+        </div>
       </div>
     </div>
   );

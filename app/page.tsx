@@ -129,7 +129,7 @@ export default function CIDE() {
         {/* Editor (left 55%) + Terminal (right 45%) */}
         <div className="flex-1 flex min-w-0 overflow-hidden">
           {/* Monaco editor */}
-          <div className="flex-1 min-w-0 border-r border-zinc-800">
+          <div className="flex-1 min-w-0 border-r border-zinc-800 flex flex-col">
             <CodeEditor file={selectedFile} onChange={handleFileChange} />
           </div>
 
