@@ -3,6 +3,7 @@
 import { useEffect, useImperativeHandle, useRef, forwardRef } from "react";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import type { FitAddon as FitAddonType } from "xterm-addon-fit";
+import "@xterm/xterm/css/xterm.css";
 
 export interface TerminalHandle {
   writeInfo: (text: string) => void;
@@ -52,8 +53,6 @@ export const OutputTerminal = forwardRef<TerminalHandle, OutputTerminalProps>(
           import("xterm-addon-fit"),
           import("@xterm/addon-web-links"),
         ]);
-
-        await import("@xterm/xterm/css/xterm.css");
 
         if (disposed || !containerRef.current) return;
 
